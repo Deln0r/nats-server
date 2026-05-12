@@ -62,6 +62,7 @@ type RaftNode interface {
 	StepDown(preferred ...string) error
 	SetObserver(isObserver bool)
 	IsObserver() bool
+	ResetForExtension()
 	Campaign() error
 	CampaignImmediately() error
 	ID() string
@@ -3914,6 +3915,65 @@ func (n *raft) truncateWAL(term, index uint64) {
 // Lock should be held.
 func (n *raft) resetWAL() {
 	n.truncateWAL(0, 0)
+}
+
+// ResetForExtension discards this node's local raft state so it can be caught
+// up cleanly by a parent group. Used when a SYS-account leaf connection
+// confirms that this server should be extending a parent JetStream domain
+// after having bootstrapped its own standalone metagroup (e.g. extension_hint
+// was set to no_extend, then the system account leaf came up anyway).
+//
+// Without this, the standalone metagroup's committed log prefix prevents the
+// follower's processAppendEntry from ever truncating: ae.pindex < n.commit
+// short-circuits as "already committed" even though the entries are from a
+// disjoint raft group with the same name. The two groups stay forked forever.
+func (n *raft) ResetForExtension() {
+	n.Lock()
+	defer n.Unlock()
+
+	n.debug("Resetting raft state for extension into parent group")
+
+	n.setObserverLocked(true, extExtended)
+	n.stepdownLocked(_EMPTY_)
+
+	// Cancel any in-flight catchup so it does not race the reset.
+	n.cancelCatchup()
+
+	// Drop proposals and inbound entries from the standalone phase; they are
+	// no longer meaningful against the parent's log.
+	n.prop.drain()
+	n.entry.drain()
+	n.resp.drain()
+	n.apply.drain()
+
+	// Remove every snapshot under our snapshots dir, not just the one referenced
+	// by n.snapfile. Orphans (e.g. from a crash between install and the previous
+	// file's removal) would otherwise be picked up by setupLastSnapshot on the
+	// next restart and reseed the standalone state we are discarding here.
+	snapDir := filepath.Join(n.sd, snapshotsDir)
+	if err := os.RemoveAll(snapDir); err != nil {
+		n.warn("Error removing snapshots directory during extension reset: %v", err)
+	}
+	if err := os.MkdirAll(snapDir, defaultDirPerms); err != nil {
+		n.warn("Error recreating snapshots directory during extension reset: %v", err)
+	}
+	n.snapfile = _EMPTY_
+
+	// Reset the WAL, but reset these first to not trip the assertion.
+	n.commit, n.hcommit, n.applied, n.processed, n.papplied = 0, 0, 0, 0, 0
+	n.resetWAL()
+
+	// Reset peer set to just ourselves. The parent leader's EntryPeerState
+	// will fold us into its membership view via processPeerState.
+	n.peers = map[string]*lps{n.id: {time.Time{}, 0, true}}
+	n.removed = nil
+	n.adjustClusterSizeAndQuorum()
+
+	n.term, n.vote = 0, _EMPTY_
+	n.writeTermVote()
+
+	// Persist the cleared peer state so a restart picks up the reset.
+	n.writePeerState(n.currentPeerStateLocked())
 }
 
 // Lock should be held
