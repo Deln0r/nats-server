@@ -5091,6 +5091,9 @@ func TestJetStreamClusterAccountUsageDrifts(t *testing.T) {
 	sir3, err = js.StreamInfo("TEST1")
 	require_NoError(t, err)
 
+	// Wait for the scale down to complete before scaling back up.
+	c.waitOnStreamLeader(aExpPub, "TEST1")
+
 	// Now scale back up.
 	_, err = js.UpdateStream(&nats.StreamConfig{
 		Name:     "TEST1",

@@ -7153,6 +7153,9 @@ func TestJetStreamClusterConsumerInfoAfterCreate(t *testing.T) {
 	require_NoError(t, err)
 	require_NotEqual(t, si.Cluster.Leader, nl.Name())
 
+	// Wait for the scale down to complete.
+	c.waitOnStreamLeader(globalAccountName, "TEST")
+
 	// We pause applies for the server we're connected to.
 	// This is fine for the RAFT log and allowing the consumer to be created,
 	// but we will not be able to apply the consumer assignment for some time.
