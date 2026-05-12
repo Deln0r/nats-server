@@ -2878,6 +2878,30 @@ func TestLeafNodeWSMixURLs(t *testing.T) {
 	}
 }
 
+func TestLeafNodeWSFIPSValidation(t *testing.T) {
+	u, err := url.Parse("wss://127.0.0.1:1234")
+	if err != nil {
+		t.Fatalf("Error parsing url: %v", err)
+	}
+
+	o := DefaultOptions()
+	o.LeafNode.Remotes = []*RemoteLeafOpts{{URLs: []*url.URL{u}}}
+
+	err = validateLeafNode(o)
+	if wsAllowedFIPS() {
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		return
+	}
+	if err == nil {
+		t.Fatal("Expected FIPS validation error, got none")
+	}
+	if !strings.Contains(err.Error(), "FIPS-140 mode") {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+}
+
 type testConnTrackSize struct {
 	sync.Mutex
 	net.Conn

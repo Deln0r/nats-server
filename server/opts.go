@@ -5445,6 +5445,9 @@ func parseWebsocket(v any, o *Options, errors *[]error, warnings *[]error) error
 	if !ok {
 		return &configErr{tk, fmt.Sprintf("Expected websocket to be a map, got %T", v)}
 	}
+	if !wsAllowedFIPS() {
+		return &configErr{tk, "WebSockets cannot be used in FIPS-140 mode when built with this Go version, use Go 1.26 or later"}
+	}
 	for mk, mv := range gm {
 		// Again, unwrap token value if line check is required.
 		tk, mv = unwrapValue(mv, &lt)

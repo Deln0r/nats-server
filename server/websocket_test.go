@@ -1855,9 +1855,17 @@ func TestWSValidateOptions(t *testing.T) {
 			o.Websocket.Headers = map[string]string{"Nats-No-Masking": "false"}
 			return o
 		}, `websocket: invalid header "Nats-No-Masking" not allowed`},
+		{"fips websocket listener", func() *Options {
+			return wso.Clone()
+		}, func() string {
+			if wsAllowedFIPS() {
+				return ""
+			}
+			return "WebSockets cannot be used in FIPS-140 mode when built with this Go version, use Go 1.26 or later"
+		}()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateWebsocketOptions(test.getOpts())
+			err := validateOptions(test.getOpts())
 			if test.err == "" && err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			} else if test.err != "" && (err == nil || !strings.Contains(err.Error(), test.err)) {
